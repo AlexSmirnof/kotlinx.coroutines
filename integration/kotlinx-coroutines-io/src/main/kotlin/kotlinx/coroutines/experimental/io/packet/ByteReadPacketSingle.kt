@@ -3,6 +3,7 @@ package kotlinx.coroutines.experimental.io.packet
 import kotlinx.coroutines.experimental.io.internal.*
 import java.io.*
 import java.nio.*
+import java.nio.charset.*
 
 internal class ByteReadPacketSingle(private var buffer: ByteBuffer?, private val pool: ObjectPool<ByteBuffer>) : ByteReadPacket {
     override val remaining: Int
@@ -95,8 +96,38 @@ internal class ByteReadPacketSingle(private var buffer: ByteBuffer?, private val
         return v
     }
 
-    override fun <A : Appendable> readUTF8LineTo(out: A, limit: Int): Boolean {
-        TODO()
+    override fun readUTF8LineTo(out: Appendable, limit: Int): Boolean {
+        var decoded = 0
+        var cr = false
+
+        return reading { bb ->
+            val rc = bb.decodeUTF8 { ch ->
+                when (ch) {
+                    '\r' -> {
+                        if (cr) {
+                            return@decodeUTF8 false
+                        }
+                        cr = true
+                        true
+                    }
+                    '\n' -> {
+                        return true
+                    }
+                    else -> {
+                        if (cr) {
+                            return@decodeUTF8 false
+                        }
+
+                        if (decoded == limit) throw BufferOverflowException()
+                        decoded++
+                        out.append(ch)
+                        true
+                    }
+                }
+            }
+
+            if (rc != 0) throw MalformedInputException(0)
+        }
     }
 
     override fun skip(n: Int): Int {
